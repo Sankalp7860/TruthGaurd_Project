@@ -15,7 +15,7 @@ export default function RootLayout() {
         <Stack.Screen name="(protected)" />
         <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
     </AuthProvider>
   );
 }
