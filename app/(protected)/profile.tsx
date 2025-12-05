@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,16 @@ import {
   Modal,
   Linking,
   Clipboard,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/lib/auth-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { User, Mail, Shield, LogOut, ChevronRight, MessageSquare, X, Copy } from 'lucide-react-native';
+import { User, Mail, Shield, LogOut, ChevronRight, MessageSquare, X, Copy, Camera } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadToCloudinary } from '@/lib/cloudinary';
+import { supabase } from '@/lib/supabase';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -23,6 +28,100 @@ export default function ProfileScreen() {
   const [feedbackModal, setFeedbackModal] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSubject, setFeedbackSubject] = useState('');
+  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [statistics, setStatistics] = useState({
+    deepfakeScans: 0,
+    postsCount: 0,
+    totalLikes: 0,
+  });
+
+  useEffect(() => {
+    fetchUserProfile();
+  }, [user?.email]);
+
+  const fetchUserProfile = async () => {
+    if (!user?.email) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('profile_image_url, deepfake_scans_count, posts_count, total_likes_received')
+        .eq('email', user.email)
+        .single();
+
+      if (data) {
+        if (data.profile_image_url) {
+          setProfileImage(data.profile_image_url);
+        }
+        setStatistics({
+          deepfakeScans: data.deepfake_scans_count || 0,
+          postsCount: data.posts_count || 0,
+          totalLikes: data.total_likes_received || 0,
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    }
+  };
+
+  const handleImagePick = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to your photos to upload a profile picture.');
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadProfileImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const uploadProfileImage = async (imageUri: string) => {
+    if (!user?.email) return;
+
+    setUploadingImage(true);
+    try {
+      // Upload to Cloudinary
+      const cloudinaryResponse = await uploadToCloudinary(imageUri);
+      
+      // Update Supabase
+      const { error } = await supabase
+        .from('user_profiles')
+        .upsert({
+          email: user.email,
+          profile_image_url: cloudinaryResponse.secureUrl,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'email'
+        });
+
+      if (error) throw error;
+
+      setProfileImage(cloudinaryResponse.secureUrl);
+      Alert.alert('Success', 'Profile picture updated successfully!');
+    } catch (error: any) {
+      console.error('Error uploading profile image:', error);
+      Alert.alert('Error', error.message || 'Failed to upload profile picture');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -97,15 +196,58 @@ export default function ProfileScreen() {
           style={styles.header}
         >
           <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <User color="white" size={48} />
-            </View>
+            <TouchableOpacity 
+              style={styles.avatar}
+              onPress={handleImagePick}
+              disabled={uploadingImage}
+            >
+              {uploadingImage ? (
+                <ActivityIndicator size="large" color="white" />
+              ) : profileImage ? (
+                <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+              ) : (
+                <User color="white" size={48} />
+              )}
+              <View style={styles.cameraIconContainer}>
+                <Camera color="#6366f1" size={16} />
+              </View>
+            </TouchableOpacity>
           </View>
           <Text style={styles.name}>User Profile</Text>
           <Text style={styles.email}>{user?.email || 'user@example.com'}</Text>
         </LinearGradient>
 
         <View style={styles.content}>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>My Statistics</Text>
+            
+            <View style={styles.statsContainer}>
+              <View style={styles.statCard}>
+                <View style={styles.statIconContainer}>
+                  <Shield color="#6366f1" size={24} />
+                </View>
+                <Text style={styles.statValue}>{statistics.deepfakeScans}</Text>
+                <Text style={styles.statLabel}>Deepfake Scans</Text>
+              </View>
+
+              <View style={styles.statCard}>
+                <View style={styles.statIconContainer}>
+                  <MessageSquare color="#8b5cf6" size={24} />
+                </View>
+                <Text style={styles.statValue}>{statistics.postsCount}</Text>
+                <Text style={styles.statLabel}>Posts Created</Text>
+              </View>
+
+              <View style={styles.statCard}>
+                <View style={styles.statIconContainer}>
+                  <Text style={styles.likeEmoji}>❤️</Text>
+                </View>
+                <Text style={styles.statValue}>{statistics.totalLikes}</Text>
+                <Text style={styles.statLabel}>Likes Received</Text>
+              </View>
+            </View>
+          </View>
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Account</Text>
             
@@ -266,6 +408,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 4,
     borderColor: 'white',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 48,
+  },
+  cameraIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'white',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#6366f1',
   },
   name: {
     fontSize: 24,
@@ -289,6 +450,46 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#111827',
     marginBottom: 16,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  statIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#eff6ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  likeEmoji: {
+    fontSize: 24,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    textAlign: 'center',
   },
   menuItem: {
     flexDirection: 'row',

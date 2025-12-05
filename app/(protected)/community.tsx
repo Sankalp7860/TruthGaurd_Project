@@ -12,11 +12,15 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MessageCircle, Heart, Send, Plus, X, User as UserIcon, Trash2 } from 'lucide-react-native';
+import { MessageCircle, Heart, Send, Plus, X, User as UserIcon, Trash2, ImageIcon } from 'lucide-react-native';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadToCloudinary } from '@/lib/cloudinary';
 
 interface Comment {
   id: string;
@@ -30,11 +34,13 @@ interface Post {
   id: string;
   user_email: string;
   content: string;
+  image_url?: string;
   likes: number;
   created_at: string;
   liked_by?: string[];
   comments?: Comment[];
   comment_count?: number;
+  user_profile_image?: string;
 }
 
 export default function CommunityScreen() {
@@ -50,10 +56,34 @@ export default function CommunityScreen() {
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [newPost, setNewPost] = useState('');
   const [newComment, setNewComment] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [uploadingPost, setUploadingPost] = useState(false);
+  const [userProfiles, setUserProfiles] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchPosts();
   }, []);
+
+  const fetchUserProfiles = async (emails: string[]) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('email, profile_image_url')
+        .in('email', emails);
+
+      if (data) {
+        const profiles: Record<string, string> = {};
+        data.forEach(profile => {
+          if (profile.profile_image_url) {
+            profiles[profile.email] = profile.profile_image_url;
+          }
+        });
+        setUserProfiles(profiles);
+      }
+    } catch (error) {
+      console.error('Error fetching profiles:', error);
+    }
+  };
 
   const fetchPosts = async () => {
     try {
@@ -64,6 +94,10 @@ export default function CommunityScreen() {
         .order('created_at', { ascending: false });
 
       if (postsError) throw postsError;
+
+      // Fetch user profiles
+      const uniqueEmails = [...new Set(postsData?.map(p => p.user_email) || [])];
+      await fetchUserProfiles(uniqueEmails);
 
       // Fetch comment counts for each post
       const postsWithComments = await Promise.all(
@@ -91,17 +125,52 @@ export default function CommunityScreen() {
     setRefreshing(false);
   };
 
+  const handlePickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to your photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
   const handleCreatePost = async () => {
-    if (!newPost.trim()) {
-      Alert.alert('Error', 'Please write something to post');
+    if (!newPost.trim() && !selectedImage) {
+      Alert.alert('Error', 'Please write something or add an image');
       return;
     }
 
+    setUploadingPost(true);
     try {
+      let imageUrl = null;
+
+      // Upload image to Cloudinary if selected
+      if (selectedImage) {
+        const cloudinaryResponse = await uploadToCloudinary(selectedImage);
+        imageUrl = cloudinaryResponse.secureUrl;
+      }
+
       const { error } = await supabase.from('community_posts').insert([
         {
           user_email: user?.email,
           content: newPost.trim(),
+          image_url: imageUrl,
           likes: 0,
           liked_by: [],
         },
@@ -111,11 +180,14 @@ export default function CommunityScreen() {
 
       Alert.alert('Success', 'Post created successfully!');
       setNewPost('');
+      setSelectedImage(null);
       setModalVisible(false);
       fetchPosts();
     } catch (error: any) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post');
+      Alert.alert('Error', error.message || 'Failed to create post');
+    } finally {
+      setUploadingPost(false);
     }
   };
 
@@ -312,7 +384,14 @@ export default function CommunityScreen() {
               <View key={post.id} style={styles.postCard}>
                 <View style={styles.postHeader}>
                   <View style={styles.userAvatar}>
-                    <UserIcon color="#6366f1" size={20} />
+                    {userProfiles[post.user_email] ? (
+                      <Image 
+                        source={{ uri: userProfiles[post.user_email] }} 
+                        style={styles.avatarImage}
+                      />
+                    ) : (
+                      <UserIcon color="#6366f1" size={20} />
+                    )}
                   </View>
                   <View style={styles.postInfo}>
                     <View style={styles.userNameRow}>
@@ -327,6 +406,13 @@ export default function CommunityScreen() {
                   </View>
                 </View>
                 <Text style={styles.postContent}>{post.content}</Text>
+                {post.image_url && (
+                  <Image 
+                    source={{ uri: post.image_url }} 
+                    style={styles.postImage}
+                    resizeMode="cover"
+                  />
+                )}
                 <View style={styles.postActions}>
                   <TouchableOpacity
                     style={styles.actionButton}
@@ -391,6 +477,17 @@ export default function CommunityScreen() {
               </View>
 
               <ScrollView style={styles.modalScroll}>
+                {selectedImage && (
+                  <View style={styles.selectedImageContainer}>
+                    <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
+                    <TouchableOpacity 
+                      style={styles.removeImageButton}
+                      onPress={() => setSelectedImage(null)}
+                    >
+                      <X color="white" size={16} />
+                    </TouchableOpacity>
+                  </View>
+                )}
                 <TextInput
                   style={styles.postInput}
                   placeholder="What's on your mind?"
@@ -404,13 +501,31 @@ export default function CommunityScreen() {
                 <Text style={styles.charCount}>{newPost.length}/500</Text>
               </ScrollView>
 
-              <TouchableOpacity
-                style={styles.submitButton}
-                onPress={handleCreatePost}
-              >
-                <Send color="white" size={20} />
-                <Text style={styles.submitButtonText}>Post</Text>
-              </TouchableOpacity>
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={styles.imagePickerButton}
+                  onPress={handlePickImage}
+                  disabled={uploadingPost}
+                >
+                  <ImageIcon color="#6366f1" size={20} />
+                  <Text style={styles.imagePickerText}>Add Image</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[styles.submitButton, uploadingPost && styles.submitButtonDisabled]}
+                  onPress={handleCreatePost}
+                  disabled={uploadingPost}
+                >
+                  {uploadingPost ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <>
+                      <Send color="white" size={20} />
+                      <Text style={styles.submitButtonText}>Post</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
             </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
@@ -798,5 +913,61 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  postImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    marginBottom: 12,
+    backgroundColor: '#f3f4f6',
+  },
+  selectedImageContainer: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  selectedImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+  },
+  imagePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  imagePickerText: {
+    color: '#6366f1',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  submitButtonDisabled: {
+    opacity: 0.6,
   },
 });

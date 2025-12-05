@@ -16,9 +16,12 @@ import { detectDeepfake, DeepfakeResult } from '@/lib/rd';
 import { Button } from '@/components/Button';
 import { ResultCard } from '@/components/ResultCard';
 import { ArrowLeft, Upload } from 'lucide-react-native';
+import { trackDeepfakeScan } from '@/lib/statistics';
+import { useAuth } from '@/lib/auth-context';
 
 export default function DeepfakeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [selectedMedia, setSelectedMedia] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<DeepfakeResult | null>(null);
@@ -64,6 +67,16 @@ export default function DeepfakeScreen() {
     try {
       const detectionResult = await detectDeepfake(selectedMedia);
       setResult(detectionResult);
+
+      // Track the scan in database
+      if (user?.email) {
+        await trackDeepfakeScan({
+          userEmail: user.email,
+          scanResult: detectionResult.result as 'REAL' | 'FAKE' | 'SUSPECT',
+          fileType: selectedMedia.includes('video') ? 'video' : 'image',
+          riskScore: detectionResult.riskScore,
+        });
+      }
     } catch (error: any) {
       Alert.alert('Analysis Failed', error.message);
     } finally {
