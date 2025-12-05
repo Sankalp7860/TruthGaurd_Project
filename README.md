@@ -4,9 +4,9 @@ A production-ready React Native + Expo application for detecting deepfakes and f
 
 ## Features
 
-- **Supabase Authentication**: Email/password authentication with signup, login, and password reset
-- **Deepfake Detection**: Upload images/videos and analyze them using Reality Defender API
-- **Job Fraud Detection**: Analyze job postings for scam indicators using OpenAI GPT
+- **Supabase Authentication**: Email/password authentication with signup and login.
+- **Deepfake Detection**: Upload images/videos and analyze them.
+- **Job Fraud Detection**: Analyze job postings for scam indicators.
 - **Clean UI**: Modern, professional design with StyleSheet
 - **Protected Routes**: Secure navigation with authentication guards
 
@@ -16,9 +16,6 @@ A production-ready React Native + Expo application for detecting deepfakes and f
 - **Navigation**: Expo Router
 - **Authentication**: Supabase
 - **Styling**: React Native StyleSheet
-- **APIs**:
-  - Reality Defender for deepfake detection
-  - OpenAI GPT-4 for job fraud analysis
 
 ## Prerequisites
 
@@ -42,14 +39,7 @@ Copy `.env.example` to `.env` and fill in your credentials:
 cp .env.example .env
 ```
 
-Required environment variables:
 
-```env
-EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-EXPO_PUBLIC_RD_API_KEY=your_reality_defender_api_key
-EXPO_PUBLIC_OPENAI_API_KEY=your_openai_api_key
-```
 
 #### Getting API Keys:
 
@@ -58,15 +48,6 @@ EXPO_PUBLIC_OPENAI_API_KEY=your_openai_api_key
 2. Create a new project
 3. Go to Project Settings > API
 4. Copy URL and anon/public key
-
-**Reality Defender:**
-1. Sign up at [realitydefender.com](https://realitydefender.com)
-2. Get API key from dashboard
-
-**OpenAI:**
-1. Create account at [platform.openai.com](https://platform.openai.com)
-2. Go to API Keys section
-3. Create new API key
 
 ### 3. Run the App
 
@@ -107,8 +88,6 @@ npm run build:web
 ├── lib/                      # Core logic and API integrations
 │   ├── supabase.ts           # Supabase client setup
 │   ├── auth-context.tsx      # Authentication context provider
-│   ├── rd.ts                 # Reality Defender API integration
-│   └── openai.ts             # OpenAI API integration
 └── types/                    # TypeScript type definitions
     └── env.d.ts
 ```
@@ -178,12 +157,6 @@ npm install
 - Verify Supabase URL and keys are correct
 - Check Supabase dashboard for auth settings
 - Ensure email confirmation is disabled (or handle accordingly)
-
-### API Errors
-
-- Verify all API keys are valid and active
-- Check API rate limits
-- Review API documentation for any changes
 
 ## Notes
 
